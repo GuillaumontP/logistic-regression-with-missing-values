@@ -34,8 +34,9 @@ beta.true = c(beta0.star,beta.star)
 #percentage of missingness
 p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
-nbsim = 10
-predSAEM = predNAall = predCCall = NULL
+nbsim = 50
+predSAEM = matrix(0, nrow = length(tau), ncol = nbsim * n) 
+predNAall = predCCall = NULL
 y.confusion = y.confusionSAEM = NULL
 pAll = pAllSAEM = NULL
 SAEM_tau = matrix(0,nrow = 6, ncol = 4)
@@ -101,14 +102,12 @@ for (NB in 1:nbsim)
     std.small.saem = list.small.saem$std_obs
     
     pred = pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)
-    predSAEM = c(predSAEM,pred) 
-    pAllSAEM = c(pAllSAEM, p1)
-    y.confusionSAEM = c(y.confusionSAEM, y.test)
+    predSAEM[k, (1 + n *(NB - 1)) : (n * NB)] = pred 
     
     SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(pred),y.test))$table) #confusion matrix in vector
     k = k + 1 
   }
-
+  
 }
 ```
 
@@ -138,10 +137,13 @@ abline(a=0, b= 1, col="grey80")
 ```
 
 ```{r ROC SAEM}
-pre = prediction(pAllSAEM,round(predSAEM))
-prf <- performance(pre, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = FALSE, main = "ROC on validation set - SAEM ")
-abline(a=0, b= 1, col="grey80")
+for (i in 1:5) 
+{
+  pre = prediction(pAll,round(predSAEM[i,]))
+  prf <- performance(pre, measure = "tpr", x.measure = "fpr")
+  plot(prf, colorize = FALSE, main = "ROC on validation set - SAEM ")
+  abline(a=0, b= 1, col="grey80")
+}
 
 ```
 
