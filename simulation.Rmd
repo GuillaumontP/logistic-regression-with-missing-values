@@ -13,7 +13,7 @@ library(ROCR)
 ```
 
 ```{r init}
-n <- 100  # number of subjects
+n <- 200  # number of subjects
 p <- 3     # number of explanatory variables
 mu.star <- 1:p  # mean of the explanatory variables
 sd <- 1:p # standard deviations
@@ -34,12 +34,12 @@ beta.true = c(beta0.star,beta.star)
 #percentage of missingness
 p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
-nbsim = 50
+nbsim = 150
 predSAEM = matrix(0, nrow = length(tau), ncol = nbsim * n) 
 predNAall = predCCall = NULL
 y.confusion = y.confusionSAEM = NULL
 pAll = pAllSAEM = NULL
-SAEM_tau = matrix(0,nrow = 6, ncol = 4)
+SAEM_tau = matrix(0,nrow = length(tau), ncol = p + 1)
 Tau = seq(0.5,1, 0.1)
 
 EST.small.saem = EST.small.comp = EST.small.cc  = matrix(0, nbsim,length(beta.star)+1)
@@ -62,14 +62,14 @@ for (NB in 1:nbsim)
   X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow = n, byrow = TRUE)
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
   pAll = c(pAll, p1)
-  y.test = as.numeric(runif(n) < p1)
+  y.train = as.numeric(runif(n) < p1)
   
   # ----- No NA : classical estimation in the case without missingness
-  data.small.complete <- data.frame(y = y.test, X.small.complete)
-  model.small.complete <- glm(y.test~. , family = binomial(link = 'logit'), data = data.small.complete)
+  data.small.complete <- data.frame(y = y.train, X.small.complete)
+  model.small.complete <- glm(y~. , family = binomial(link = 'logit'), data = data.small.complete)
   beta0.small.complete <- model.small.complete$coefficients[1]
   beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
-  P.no.NA <- predict(model.small.complete, type = "response")
+  P.no.NA <- predict(model.small.complete, newdata = data.frame(X.test), type = "response")
   predNA = P.no.NA
   predNAall = c(predNAall, predNA)
   
@@ -79,32 +79,32 @@ for (NB in 1:nbsim)
   X.obs[patterns] <- NA
   
   # ------- CC : estimation ignoring the missing data
-  data.obs <- data.frame(y=y.test, X.obs)
-  model.obs <- glm(y.test~. , family = binomial(link = 'logit'), data = data.obs)
+  data.obs <- data.frame(y=y.train, X.obs)
+  model.obs <- glm(y.train~. , family = binomial(link = 'logit'), data = data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
   ###
   X.obs[patterns] = 0
-  data.obs2 <- matrix(X.obs, ncol = 3)
+  data.obs2 <- matrix(X.test, ncol = 3)
   P.CC = data.obs2 %*% beta.small.cc + beta0.small.cc
   ###
   predCC = P.CC  
   predCCall = c(predCCall,predCC)
-  y.confusion = c(y.confusion, y.test)
+  y.confusion = c(y.confusion, y.train)
   
   # -------  SAEM 
   
   k = 1 
   for (tau in seq(0.5,1, 0.1)) 
   {
-    list.small.saem = miss.saem(X.obs, y.test, print_iter = FALSE, var_cal = TRUE, tau = tau)
+    list.small.saem = miss.saem(X.obs, y.train, print_iter = FALSE, var_cal = TRUE, tau = tau)
     beta.small.saem = list.small.saem$beta
     std.small.saem = list.small.saem$std_obs
     
     pred = pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)
     predSAEM[k, (1 + n *(NB - 1)) : (n * NB)] = pred 
     
-    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(pred),y.test))$table) #confusion matrix in vector
+    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(pred),y.train))$table) #confusion matrix in vector
     k = k + 1 
   }
   
@@ -114,24 +114,23 @@ for (NB in 1:nbsim)
 ```{r plot, echo = FALSE}
 for (i in 1:6) 
 {
-  A = data.frame(matrix(c(SAEM_tau[i,]),2,2),row.names = c("0","1"))
-  colnames(A) = c("0", "1")
   print(c("matrice de confusion pour tau = ",Tau[i]))
-  print(A/sum(A))
+  
+  print(confusionMatrix(table(round(predSAEM[i,]),y.confusion)))
 }
 print("matrice de confusion avec le modèle complet")
-print(prop.table(confusionMatrix(table(as.integer(predNAall > 0.5), y.confusion))$table))
+print(confusionMatrix(table(as.integer(predNAall > 0.5), y.confusion)))
 print("matrice de confusion sans se soucier des valeurs manquantes")
-print(prop.table(confusionMatrix(table(as.integer(predCCall > 0.5), y.confusion))$table))
+print(confusionMatrix(table(as.integer(predCCall > 0.5), y.confusion)))
 
 toc()
 ```
 
 
 ```{r ROC NA}
-pre = prediction(pAll, round(predNAall)) # true model impossible to get
-prf <- performance(pre, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = FALSE, main = "ROC on validation set - NA ")
+preNA = prediction(pAll, round(predNAall)) # true model impossible to get
+prfNA <- performance(preNA, measure = "tpr", x.measure = "fpr")
+plot(prfNA, colorize = FALSE, main = "ROC on validation set - NA ")
 abline(a=0, b= 1, col="grey80")
 
 ```
@@ -139,18 +138,18 @@ abline(a=0, b= 1, col="grey80")
 ```{r ROC SAEM}
 for (i in 1:5) 
 {
-  pre = prediction(pAll,round(predSAEM[i,]))
-  prf <- performance(pre, measure = "tpr", x.measure = "fpr")
-  plot(prf, colorize = FALSE, main = "ROC on validation set - SAEM ")
+  preSAEM = prediction(pAll,round(predSAEM[i,]))
+  prfSAEM <- performance(preSAEM, measure = "tpr", x.measure = "fpr")
+  plot(prfSAEM, colorize = FALSE, main = "ROC on validation set - SAEM ")
   abline(a=0, b= 1, col="grey80")
 }
 
 ```
 
 ```{r ROC CC}
-pre = prediction(pAll,as.integer(predCCall > 0.5))
-prf <- performance(pre, measure = "tpr", x.measure = "fpr")
-plot(prf, colorize = FALSE, main = "ROC on validation set - CC ")
+preCC = prediction(pAll,as.integer(predCCall > 0.5))
+prfCC <- performance(preCC, measure = "tpr", x.measure = "fpr")
+plot(prfCC, colorize = FALSE, main = "ROC on validation set - CC ")
 abline(a=0, b= 1, col="grey80")
 
 ```
