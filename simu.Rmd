@@ -1,0 +1,125 @@
+---
+title: "Logistic Regression with missing values"
+author: "Pierre Guillaumont et Stéphane Sadio"
+date: "24/11/2021"
+output: html_document
+---
+
+```{r init}
+library(tictoc)
+library(misaem)
+library(caret)
+library(ROCR)
+library(rchallenge)
+n <- 100  # number of subjects
+p <- 3     # number of explanatory variables
+mu.star <- 1:p  # mean of the explanatory variables
+sd <- 1:p # standard deviations
+# with correlation
+#C <- matrix(c(   # correlation matrix
+#  1,   0.8, 0,   0,   0,
+#  0.8, 1,   0,   0,   0,
+#  0,   0,   1,   0.3, 0.6,
+#  0,   0,   0.3, 1,   0.7,
+#  0,   0,   0.6, 0.7, 1), nrow = p)
+C = matrix(c(1, 0.8,0, 0.8, 1, 0, 0, 0, 1), nrow = p)
+Sigma.star <- diag(sd) %*% C %*% diag(sd) # variance-covariance matrix of the explanatory variables
+# beta.star <- c(0.5, -0.3, 1, 0, -0.6) # coefficients of logistic regression
+beta.star <- c(0.5, -0.3, 1)
+beta0.star <- -0.2  # intercept
+beta.true = c(beta0.star,beta.star)
+
+#percentage of missingness
+p.miss <- 0.20 
+tau = seq(0.5, 1, by = 0.1)
+nbsim = 20
+pred = y.confusion = NULL
+
+EST.small.saem = EST.small.comp = EST.small.cc  = matrix(0, nbsim,length(beta.star)+1)
+TIME.small.saem  = rep(0, nbsim)
+STD.small.saem = STD.small.comp = STD.small.cc = STD.small.mice = matrix(0, nbsim,length(beta.star)+1)
+LENGTH.small.saem = LENGTH.small.comp = LENGTH.small.cc = matrix(0, nbsim,length(beta.star)+1)
+count.small.saem = count.small.comp = count.small.cc = rep(0,p+1)
+```
+
+# Aide pour le package misaem
+```{r}
+vignette("misaem")
+```
+
+
+
+```{r SAEM, warning = FALSE}
+tic()
+for (NB in 1:nbsim){
+  set.seed(NB)
+  # complete data simulation
+  X.small.complete <- matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
+  X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
+  p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
+  y <- as.numeric(runif(n) < p1)
+  y.test = as.numeric(runif(n) < p1)
+  
+  # ----- No NA : classical estimation in the case without missingness
+  data.small.complete <- data.frame(y=y,X.small.complete)
+  model.small.complete <- glm(y~.,family=binomial(link='logit'),data = data.small.complete)
+  beta0.small.complete <- model.small.complete$coefficients[1]
+  beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
+  P.no.NA <- predict(model.small.complete, type = "response")
+  W <- diag(P.no.NA * (1 - P.no.NA))
+  X <- model.matrix(model.small.complete)
+  V_complete <- solve(t(X) %*% W %*% X)
+  std.small.complete <- sqrt(diag(V_complete))
+  
+  # generating missing data - MCAR missingness
+  X.obs <- X.small.complete
+  patterns = runif(n * p) < p.miss
+  X.obs[patterns] <- NA
+
+  # ------- CC : estimation ignoring the missing data
+  data.obs <- data.frame(y=y,X.obs)
+  model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
+  beta0.small.cc <- model.obs$coefficients[1]
+  beta.small.cc <- model.obs$coefficients[2:(p+1)]
+  P.CC <- predict(model.obs, type = "response")
+  W <- diag(P.CC*(1-P.CC))
+  X <- model.matrix(model.obs)
+  V_cc <- solve(t(X)%*%W%*%X)
+  std.small.cc <- sqrt(diag(V_cc))
+
+ # -------  SAEM
+ list.small.saem = miss.glm(y~., data.obs, print_iter = FALSE)
+ beta.small.saem = list.small.saem$coefficients
+ std.small.saem = list.small.saem$s.err
+
+ EST.small.comp[NB,] = c(beta0.small.complete,beta.small.complete)
+ EST.small.cc[NB,] = c(beta0.small.cc,beta.small.cc)
+ EST.small.saem[NB,] = beta.small.saem
+
+
+ STD.small.comp[NB,] = std.small.complete
+ STD.small.cc[NB,] = std.small.cc
+ STD.small.saem[NB,] = std.small.saem
+
+predSAEM = predict(list.small.saem, X.test ) # prediction
+pred = c(pred,predSAEM)) 
+y.confusion = c(y.confusion, y.test)
+
+}
+
+confusionMatrix(table(pred,y.confusion))
+
+toc()
+```
+Courbe ROC pour SAEM
+```{r}
+pred1 <- prediction(pred, y.confusion)
+perf1 <- performance(pred1, "tpr", "fpr")
+plot(perf1)
+```
+
+Courbe ROC pour no-NA
+```{r}
+
+```
+
