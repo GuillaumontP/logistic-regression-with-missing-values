@@ -5,12 +5,14 @@ date: "24/11/2021"
 output: html_document
 ---
 
-```{r init}
+```{r library}
 library(tictoc)
 library(misaem)
 library(caret)
 library(ROCR)
+```
 
+```{r init}
 n <- 100  # number of subjects
 p <- 3     # number of explanatory variables
 mu.star <- 1:p  # mean of the explanatory variables
@@ -32,10 +34,10 @@ beta.true = c(beta0.star,beta.star)
 #percentage of missingness
 p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
-nbsim = 50
+nbsim = 10
 predSAEM = predNAall = predCCall = NULL
 y.confusion = y.confusionSAEM = NULL
-k = 1
+pAll = pAllSAEM = NULL
 SAEM_tau = matrix(0,nrow = 6, ncol = 4)
 Tau = seq(0.5,1, 0.1)
 
@@ -58,6 +60,7 @@ for (NB in 1:nbsim)
   X.small.complete <- matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
   X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow = n, byrow = TRUE)
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
+  pAll = c(pAll, p1)
   y.test = as.numeric(runif(n) < p1)
   
   # ----- No NA : classical estimation in the case without missingness
@@ -90,6 +93,7 @@ for (NB in 1:nbsim)
   
   # -------  SAEM 
   
+  k = 1 
   for (tau in seq(0.5,1, 0.1)) 
   {
     list.small.saem = miss.saem(X.obs, y.test, print_iter = FALSE, var_cal = TRUE, tau = tau)
@@ -98,12 +102,13 @@ for (NB in 1:nbsim)
     
     pred = pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)
     predSAEM = c(predSAEM,pred) 
+    pAllSAEM = c(pAllSAEM, p1)
     y.confusionSAEM = c(y.confusionSAEM, y.test)
     
-    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(predSAEM),y.confusionSAEM))$table) #confusion matrix in vector
+    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(pred),y.test))$table) #confusion matrix in vector
     k = k + 1 
   }
-  k = 1
+
 }
 ```
 
@@ -122,8 +127,10 @@ print(prop.table(confusionMatrix(table(as.integer(predCCall > 0.5), y.confusion)
 
 toc()
 ```
+
+
 ```{r ROC NA}
-pre = prediction(predNAall, y.confusion)
+pre = prediction(pAll, round(predNAall)) # true model impossible to get
 prf <- performance(pre, measure = "tpr", x.measure = "fpr")
 plot(prf, colorize = FALSE, main = "ROC on validation set - NA ")
 abline(a=0, b= 1, col="grey80")
@@ -131,9 +138,17 @@ abline(a=0, b= 1, col="grey80")
 ```
 
 ```{r ROC SAEM}
-pre = prediction(predSAEM, y.confusionSAEM)
+pre = prediction(pAllSAEM,round(predSAEM))
 prf <- performance(pre, measure = "tpr", x.measure = "fpr")
 plot(prf, colorize = FALSE, main = "ROC on validation set - SAEM ")
+abline(a=0, b= 1, col="grey80")
+
+```
+
+```{r ROC CC}
+pre = prediction(pAll,as.integer(predCCall > 0.5))
+prf <- performance(pre, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = FALSE, main = "ROC on validation set - CC ")
 abline(a=0, b= 1, col="grey80")
 
 ```
