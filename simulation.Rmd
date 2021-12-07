@@ -9,6 +9,7 @@ output: html_document
 library(tictoc)
 library(misaem)
 library(caret)
+library(ROCR)
 
 n <- 100  # number of subjects
 p <- 3     # number of explanatory variables
@@ -55,18 +56,17 @@ for (NB in 1:nbsim)
   set.seed(NB)
   # complete data simulation
   X.small.complete <- matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
-  X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow=n, byrow = TRUE)
+  X.test = matrix(rnorm(n * p), nrow = n) %*% chol(Sigma.star) + matrix(rep(mu.star,n), nrow = n, byrow = TRUE)
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
-  y <- as.numeric(runif(n) < p1)
   y.test = as.numeric(runif(n) < p1)
   
   # ----- No NA : classical estimation in the case without missingness
-  data.small.complete <- data.frame(y=y,X.small.complete)
-  model.small.complete <- glm(y~.,family=binomial(link='logit'),data = data.small.complete)
+  data.small.complete <- data.frame(y = y.test, X.small.complete)
+  model.small.complete <- glm(y.test~. , family = binomial(link = 'logit'), data = data.small.complete)
   beta0.small.complete <- model.small.complete$coefficients[1]
   beta.small.complete <- model.small.complete$coefficients[2:(p + 1)]
   P.no.NA <- predict(model.small.complete, type = "response")
-  predNA = round(P.no.NA)
+  predNA = P.no.NA
   predNAall = c(predNAall, predNA)
   
   # generating missing data - MCAR missingness
@@ -75,15 +75,14 @@ for (NB in 1:nbsim)
   X.obs[patterns] <- NA
   
   # ------- CC : estimation ignoring the missing data
-  data.obs <- data.frame(y=y,X.obs)
-  model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
+  data.obs <- data.frame(y=y.test, X.obs)
+  model.obs <- glm(y.test~. , family = binomial(link = 'logit'), data = data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
   ###
   X.obs[patterns] = 0
   data.obs2 <- matrix(X.obs, ncol = 3)
-  P.CC = c(data.obs2 %*% beta.small.cc + beta0.small.cc) > 0.5
-  P.CC = as.integer(P.CC) 
+  P.CC = data.obs2 %*% beta.small.cc + beta0.small.cc
   ###
   predCC = P.CC  
   predCCall = c(predCCall,predCC)
@@ -93,19 +92,15 @@ for (NB in 1:nbsim)
   
   for (tau in seq(0.5,1, 0.1)) 
   {
-    list.small.saem = miss.saem(X.obs, y, print_iter = FALSE, var_cal = TRUE, tau = tau)
+    list.small.saem = miss.saem(X.obs, y.test, print_iter = FALSE, var_cal = TRUE, tau = tau)
     beta.small.saem = list.small.saem$beta
     std.small.saem = list.small.saem$std_obs
     
-    EST.small.comp[NB,] = c(beta0.small.complete,beta.small.complete)
-    EST.small.cc[NB,] = c(beta0.small.cc,beta.small.cc)
-    EST.small.saem[NB,] = beta.small.saem
-    
-    pred = round(pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2))
+    pred = pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)
     predSAEM = c(predSAEM,pred) 
     y.confusionSAEM = c(y.confusionSAEM, y.test)
     
-    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(predSAEM,y.confusionSAEM))$table) #confusion matrix in vector
+    SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(predSAEM),y.confusionSAEM))$table) #confusion matrix in vector
     k = k + 1 
   }
   k = 1
@@ -121,10 +116,24 @@ for (i in 1:6)
   print(A/sum(A))
 }
 print("matrice de confusion avec le modèle complet")
-print(prop.table(confusionMatrix(table(predNAall, y.confusion))$table))
+print(prop.table(confusionMatrix(table(as.integer(predNAall > 0.5), y.confusion))$table))
 print("matrice de confusion sans se soucier des valeurs manquantes")
-print(prop.table(confusionMatrix(table(predCCall, y.confusion))$table))
+print(prop.table(confusionMatrix(table(as.integer(predCCall > 0.5), y.confusion))$table))
 
 toc()
 ```
+```{r ROC NA}
+pre = prediction(predNAall, y.confusion)
+prf <- performance(pre, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = FALSE, main = "ROC on validation set - NA ")
+abline(a=0, b= 1, col="grey80")
 
+```
+
+```{r ROC SAEM}
+pre = prediction(predSAEM, y.confusionSAEM)
+prf <- performance(pre, measure = "tpr", x.measure = "fpr")
+plot(prf, colorize = FALSE, main = "ROC on validation set - SAEM ")
+abline(a=0, b= 1, col="grey80")
+
+```
