@@ -79,8 +79,13 @@ for (NB in 1:nbsim)
   model.obs <- glm(y ~.,family=binomial(link='logit'),data=data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
-  P.CC <- predict(model.obs, type = "response")
-  predCC = round(P.CC)  
+  ###
+  X.obs[patterns] = 0
+  data.obs2 <- matrix(X.obs, ncol = 3)
+  P.CC = c(data.obs2 %*% beta.small.cc + beta0.small.cc) > 0.5
+  P.CC = as.integer(P.CC) 
+  ###
+  predCC = P.CC  
   predCCall = c(predCCall,predCC)
   y.confusion = c(y.confusion, y.test)
   
@@ -112,8 +117,10 @@ for (i in 1:6)
   print("matrice de confusion pour tau = ",Tau[i])
   print(A)
 }
-print(c("matrice de confusion avec le modèle complet",confusionMatrix(table(predCCall,y.confusion)) ))
-print(c("matrice de confusion sans se soucier des valeurs manquantes",confusionMatrix(table(predNAall,y.confusion)) ))
+print("matrice de confusion avec le modèle complet")
+print(prop.table(confusionMatrix(table(predCCall, y.confusion))$table))
+print("matrice de confusion sans se soucier des valeurs manquantes")
+print(prop.table(confusionMatrix(table(predNAall, y.confusion))$table))
 
 toc()
 ```
