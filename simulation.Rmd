@@ -31,7 +31,7 @@ beta.true = c(beta0.star,beta.star)
 #percentage of missingness
 p.miss <- 0.20 
 tau = seq(0.5, 1, by = 0.1)
-nbsim = 10
+nbsim = 50
 predSAEM = predNAall = predCCall = NULL
 y.confusion = y.confusionSAEM = NULL
 k = 1
@@ -110,17 +110,20 @@ for (NB in 1:nbsim)
   }
   k = 1
 }
+```
+
+```{r plot, echo = FALSE}
 for (i in 1:6) 
 {
   A = data.frame(matrix(c(SAEM_tau[i,]),2,2),row.names = c("0","1"))
   colnames(A) = c("0", "1")
-  print("matrice de confusion pour tau = ",Tau[i])
-  print(A)
+  print(c("matrice de confusion pour tau = ",Tau[i]))
+  print(A/sum(A))
 }
 print("matrice de confusion avec le modèle complet")
-print(prop.table(confusionMatrix(table(predCCall, y.confusion))$table))
-print("matrice de confusion sans se soucier des valeurs manquantes")
 print(prop.table(confusionMatrix(table(predNAall, y.confusion))$table))
+print("matrice de confusion sans se soucier des valeurs manquantes")
+print(prop.table(confusionMatrix(table(predCCall, y.confusion))$table))
 
 toc()
 ```
