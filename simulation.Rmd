@@ -37,6 +37,8 @@ tau = seq(0.5, 1, by = 0.1)
 nbsim = 150
 predSAEM = matrix(0, nrow = length(tau), ncol = nbsim * n) 
 predNAall = predCCall = NULL
+pred.mean = NULL
+predMeanAll = NULL
 y.confusion = y.confusionSAEM = NULL
 pAll = pAllSAEM = NULL
 SAEM_tau = matrix(0,nrow = length(tau), ncol = p + 1)
@@ -51,7 +53,7 @@ count.small.saem = count.small.comp = count.small.cc = rep(0,p+1)
 
 
 
-```{r SAEM, warning = FALSE}
+```{r Simu, warning = FALSE}
 tic()
 
 for (NB in 1:nbsim)
@@ -63,6 +65,7 @@ for (NB in 1:nbsim)
   p1 <- 1 / (1 + exp(-X.small.complete %*% beta.star - beta0.star))
   pAll = c(pAll, p1)
   y.train = as.numeric(runif(n) < p1)
+  y.test  = as.numeric(runif(n) < p1)
   
   # ----- No NA : classical estimation in the case without missingness
   data.small.complete <- data.frame(y = y.train, X.small.complete)
@@ -78,19 +81,32 @@ for (NB in 1:nbsim)
   patterns = runif(n * p) < p.miss
   X.obs[patterns] <- NA
   
+  # ------- Mean missing values
+  mean = 1:p
+  X.mean = X.obs
+  for (l in 1:p)
+  {
+   mean[l] = sum(X.mean[,l], na.rm = TRUE) 
+   mean[l] = mean[l]/(n - sum(patterns[(1 + n*(l - 1)):(n * l)]))
+   X.mean[patterns[(1 + n*(l - 1)):(n * l)],l] = mean[l]
+  }
+  data.mean = data.frame(y = y.train, X.mean)
+  model.mean <- glm(y~. , family = binomial(link = 'logit'), data = data.mean)
+  pred.mean = predict(model.mean, newdata = data.frame(X.test), type = "response")
+  predMeanAll = c(predMeanAll,pred.mean)
+  
+  
   # ------- CC : estimation ignoring the missing data
   data.obs <- data.frame(y=y.train, X.obs)
   model.obs <- glm(y.train~. , family = binomial(link = 'logit'), data = data.obs)
   beta0.small.cc <- model.obs$coefficients[1]
   beta.small.cc <- model.obs$coefficients[2:(p+1)]
-  ###
   X.obs[patterns] = 0
   data.obs2 <- matrix(X.test, ncol = 3)
   P.CC = data.obs2 %*% beta.small.cc + beta0.small.cc
-  ###
   predCC = P.CC  
   predCCall = c(predCCall,predCC)
-  y.confusion = c(y.confusion, y.train)
+  y.confusion = c(y.confusion, y.test)
   
   # -------  SAEM 
   
@@ -103,7 +119,6 @@ for (NB in 1:nbsim)
     
     pred = pred_saem(X.test, list.small.saem$beta, list.small.saem$mu, list.small.saem$sig2)
     predSAEM[k, (1 + n *(NB - 1)) : (n * NB)] = pred 
-    
     SAEM_tau[k,] = SAEM_tau[k,] + c(confusionMatrix(table(round(pred),y.train))$table) #confusion matrix in vector
     k = k + 1 
   }
@@ -122,7 +137,8 @@ print("matrice de confusion avec le modèle complet")
 print(confusionMatrix(table(as.integer(predNAall > 0.5), y.confusion)))
 print("matrice de confusion sans se soucier des valeurs manquantes")
 print(confusionMatrix(table(as.integer(predCCall > 0.5), y.confusion)))
-
+print("matrice de confusion avec la moyenne à la place des valeurs manquantes")
+print(confusionMatrix(table(round(predMeanAll),y.confusion)))
 toc()
 ```
 
